@@ -1,12 +1,12 @@
 #!/bin/bash
 
-deepspeed -i localhost:3 --master_port 29600 tools/llava_tools/train_mem.py \
+deepspeed -i localhost:3 --master_port 29600 llava/train/train_mem.py \
     --lora_enable True --lora_r 128 --lora_alpha 256 --mm_projector_lr 2e-5 \
-    --deepspeed ./scripts/llava/zero3.json \
-    --model_name_or_path liuhaotian/llava-v1.6-vicuna-7b \
+    --deepspeed ./scripts/zero3_offload.json \
+    --model_name_or_path liuhaotian/llava-v1.6-vicuna-13b \
     --cache_dir ./checkpoints \
     --version v1 \
-    --data_path ./data/vd-instruct/instructdoc_llava_train_full_5k_tesseract.json \
+    --data_path /mnt/KAIST/son/VD-Instruct/data/vd-instruct/train/no_ocr/instructdoc_llava_local_train_5k.json \
     --image_folder /mnt/KAIST/dao/instructdocs/raw_datasets \
     --vision_tower openai/clip-vit-large-patch14-336 \
     --mm_projector_type mlp2x_gelu \
@@ -16,9 +16,9 @@ deepspeed -i localhost:3 --master_port 29600 tools/llava_tools/train_mem.py \
     --image_aspect_ratio pad \
     --group_by_modality_length True \
     --bf16 True \
-    --output_dir ./checkpoints/llava-v1.6-vicuna-7b-instrucdoc-full-lora-1e4-tesseract \
+    --output_dir ./checkpoints/test \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 8 \
+    --per_device_train_batch_size 16 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 1 \
     --evaluation_strategy "no" \
@@ -35,4 +35,4 @@ deepspeed -i localhost:3 --master_port 29600 tools/llava_tools/train_mem.py \
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \
     --lazy_preprocess True \
-    --report_to wandb \
+    --report_to tensorboard \
