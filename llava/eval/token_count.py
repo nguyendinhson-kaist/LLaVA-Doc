@@ -10,7 +10,7 @@ import re
 
 import torch
 
-# llava import
+# vdinstruct import
 from llava.model.builder import load_pretrained_model
 from llava.utils import disable_torch_init
 from llava.mm_utils import (
@@ -41,11 +41,7 @@ def main(args):
     model_cfgs = dict(
         model_path=args.model_path,
         cache_dir=args.cache_dir,
-        model_base=args.model_base,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        num_beams=args.num_beams,
-        max_new_tokens=args.max_new_tokens
+        model_base=args.model_base
     )
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -55,81 +51,51 @@ def main(args):
     model_name = get_model_name_from_path(model_cfgs['model_path'])
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         model_cfgs['model_path'], 
-        model_cfgs['model_base'], 
+        model_cfgs['model_base'],
         model_name, 
         cache_dir=model_cfgs['cache_dir'], 
         device=device
     )
 
-    results = []
-
-    # get conversation mode
-    if "llama-2" in model_name.lower():
-        conv_mode = "llava_llama_2"
-    elif "mistral" in model_name.lower():
-        conv_mode = "mistral_instruct"
-    elif "v1.6-34b" in model_name.lower():
-        conv_mode = "chatml_direct"
-    elif "v1" in model_name.lower():
-        conv_mode = "llava_v1"
-    elif "llavar" in model_name.lower(): # support llavar models
-        conv_mode = "llava_v1"
-    elif "mpt" in model_name.lower():
-        conv_mode = "mpt"
-    else:
-        conv_mode = "llava_v0"
+    results = {}
 
     for d in tqdm(data):
-        qs = d['conversations'][0]['value'] + ' Use 1 to 3 words to answer.'
-
-        conv = conv_templates[conv_mode].copy()
-
-        conv.append_message(conv.roles[0], qs)
-        conv.append_message(conv.roles[1], None)
-        prompt = conv.get_prompt()
-
         if 'image' in d:
             image_paths = [osp.join(args.image_folder, d['image'])]
-            images = [Image.open(image_path).convert('RGB') for image_path in image_paths]
         elif 'image_list' in d:
             image_paths = [osp.join(args.image_folder, x) for x in d['image_list']]
-            images = [Image.open(image_path).convert('RGB') for image_path in image_paths]
         else:
             raise ValueError("No image found in the input json.")
+
+        image_paths = [i for i in image_paths if i not in results]
+        if len(image_paths) == 0:
+            continue
+        
+        images = [Image.open(image_path).convert('RGB') for image_path in image_paths]
         
         image_sizes = [x.size for x in images]
         images_tensor = process_images(
             images,
             image_processor,
             model.config
-        ).to(model.device, dtype=torch.bfloat16)
-
-        input_ids = (
-            tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt")
-            .unsqueeze(0)
-            .to(model.device)
-        )
+        ).to(model.device, dtype=torch.float16)
 
         with torch.inference_mode():
-            output_ids = model.generate(
-                input_ids,
-                images=images_tensor,
-                image_sizes=image_sizes,
-                do_sample=True if model_cfgs['temperature'] > 0 else False,
-                temperature=model_cfgs['temperature'],
-                top_p=model_cfgs['top_p'],
-                num_beams=model_cfgs['num_beams'],
-                max_new_tokens=model_cfgs['max_new_tokens'],
-                use_cache=True,
-            )
+            image_tokens = model.get_image_features(images_tensor, image_sizes=image_sizes)
+            image_tokens_count = [x.shape[0] for x in image_tokens]
 
-        outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-        d['conversations'][1]['value'] = outputs
+        results.update({
+            k: v for k, v in zip(image_paths, image_tokens_count)
+        })
 
-        results.append(d)
+    average_count = int(sum(results.values()) / len(results))
+    results.update({
+        'average_count': average_count
+    })
+    print(f"Average token count: {average_count}")
     
     with open(args.output_json, "w") as f:
-        json.dump(results, f)
+        json.dump(results, f, indent=4)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -139,10 +105,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", type=str, default='liuhaotian/llava-v1.6-vicuna-7b')
     parser.add_argument("--cache_dir", type=str, default='./checkpoints')
     parser.add_argument("--model_base", type=str, default=None)
-    parser.add_argument("--temperature", type=float, default=0.2)
-    parser.add_argument("--top_p", type=float, default=None)
-    parser.add_argument("--num_beams", type=int, default=1)
-    parser.add_argument("--max_new_tokens", type=int, default=512)
     parser.add_argument("--image_folder", type=str, default='')
 
     args = parser.parse_args()

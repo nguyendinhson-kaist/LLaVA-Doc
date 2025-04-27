@@ -35,8 +35,12 @@ from llava import conversation as conversation_lib
 from llava.model import *
 from llava.mm_utils import tokenizer_image_token
 
-from PIL import Image
+from PIL import Image, ImageFile
 
+# hot fix for image size exceeds limit
+Image.MAX_IMAGE_PIXELS = None
+# hot fix for image file is truncated
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 local_rank = None
 
